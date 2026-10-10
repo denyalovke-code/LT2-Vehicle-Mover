@@ -1,9 +1,19 @@
 
 --[[
-    LT2 Vehicle Mover
+    LT2 VEHICLE MOVER ULTIMATE
     Lumber Tycoon 2
-    Единый русскоязычный интерфейс
+    Единый русскоязычный хаб
+
+    Вкладки:
+    Главная | Машина | Визуал | Полёт
+
+    Важно:
+    Клиентское перемещение не гарантирует подтверждение сервером LT2.
 ]]
+
+--==================================================
+-- 1. СЛУЖБЫ И ЗАГРУЗКА
+--==================================================
 
 local Players = game:GetService("Players")
 local Lighting = game:GetService("Lighting")
@@ -12,21 +22,24 @@ local UserInputService = game:GetService("UserInputService")
 
 local LocalPlayer = Players.LocalPlayer
 
-local success, Rayfield = pcall(function()
-    return loadstring(game:HttpGet(
-        "https://sirius.menu/rayfield"
-    ))()
+local oldGui = game:GetService("CoreGui"):FindFirstChild("LT2VM_Ultimate")
+if oldGui then
+    oldGui:Destroy()
+end
+
+local ok, Rayfield = pcall(function()
+    return loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 end)
 
-if not success or not Rayfield then
-    warn("Не удалось загрузить Rayfield")
+if not ok or not Rayfield then
+    warn("[LT2VM] Не удалось загрузить Rayfield")
     return
 end
 
 local Window = Rayfield:CreateWindow({
-    Name = "LT2 Vehicle Mover",
+    Name = "LT2 Vehicle Mover Ultimate",
     LoadingTitle = "LT2 Vehicle Mover",
-    LoadingSubtitle = "Lumber Tycoon 2 | Единый хаб",
+    LoadingSubtitle = "Единый русскоязычный хаб",
     ConfigurationSaving = { Enabled = false },
     KeySystem = false
 })
@@ -37,11 +50,13 @@ local VisualTab = Window:CreateTab("Визуал", 4483362458)
 local FlightTab = Window:CreateTab("Полёт", 4483362458)
 
 local function notify(title, message)
-    Rayfield:Notify({
-        Title = title,
-        Content = message,
-        Duration = 5
-    })
+    pcall(function()
+        Rayfield:Notify({
+            Title = tostring(title),
+            Content = tostring(message),
+            Duration = 5
+        })
+    end)
 end
 
 local function getCharacter()
@@ -52,9 +67,9 @@ local function getRoot(character)
     return character and character:FindFirstChild("HumanoidRootPart")
 end
 
--- =========================================
--- ИГРОКИ
--- =========================================
+--==================================================
+-- 2. ВЫБОР ИГРОКА
+--==================================================
 
 local selectedPlayerName
 
@@ -77,26 +92,33 @@ local PlayerDropdown = MainTab:CreateDropdown({
     CurrentOption = {},
     MultipleOptions = false,
     Callback = function(options)
-        selectedPlayerName = options[1]
-    end
-})
-
-MainTab:CreateButton({
-    Name = "Обновить список игроков",
-    Callback = function()
-        PlayerDropdown:Refresh(getPlayerNames(), true)
-        notify("Игроки", "Список обновлён")
+        selectedPlayerName = options and options[1]
     end
 })
 
 local function refreshPlayers()
     task.defer(function()
-        PlayerDropdown:Refresh(getPlayerNames(), true)
+        pcall(function()
+            PlayerDropdown:Refresh(getPlayerNames(), true)
+        end)
     end)
 end
 
+MainTab:CreateButton({
+    Name = "Обновить список игроков",
+    Callback = function()
+        refreshPlayers()
+        notify("Игроки", "Список обновлён")
+    end
+})
+
 Players.PlayerAdded:Connect(refreshPlayers)
-Players.PlayerRemoving:Connect(refreshPlayers)
+Players.PlayerRemoving:Connect(function(player)
+    if player.Name == selectedPlayerName then
+        selectedPlayerName = nil
+    end
+    refreshPlayers()
+end)
 
 local function getSelectedPlayer()
     if not selectedPlayerName then
@@ -106,35 +128,46 @@ local function getSelectedPlayer()
 
     local player = Players:FindFirstChild(selectedPlayerName)
 
-    if not player or not player.Character then
-        notify("Ошибка", "Игрок не найден или загружается")
+    if not player then
+        notify("Ошибка", "Игрок вышел с сервера")
         return nil
     end
 
     return player
 end
 
--- =========================================
--- ОСВЕЩЕНИЕ
--- =========================================
+--==================================================
+-- 3. ОСВЕЩЕНИЕ
+--==================================================
 
 local originalClockTime = Lighting.ClockTime
 local originalBrightness = Lighting.Brightness
 local originalShadows = Lighting.GlobalShadows
-
-local lightingMode = "Обычное"
+local lightingMode = "День"
+local shadowsDisabled = true
+local lightingWorkerRunning = false
 
 local function applyLighting()
     if lightingMode == "День" then
         Lighting.ClockTime = 14
-        Lighting.Brightness = 2
+        Lighting.Brightness = 3
+        Lighting.GlobalShadows = not shadowsDisabled
     elseif lightingMode == "Ночь" then
         Lighting.ClockTime = 0
-        Lighting.Brightness = 1
+        Lighting.Brightness = 2
+        Lighting.GlobalShadows = not shadowsDisabled
     else
         Lighting.ClockTime = originalClockTime
         Lighting.Brightness = originalBrightness
+        Lighting.GlobalShadows = shadowsDisabled and false
+            or originalShadows
     end
+end
+
+local function setLightingMode(mode)
+    lightingMode = mode
+    applyLighting()
+    notify("Освещение", "Режим: " .. mode)
 end
 
 VisualTab:CreateDropdown({
@@ -143,27 +176,46 @@ VisualTab:CreateDropdown({
     CurrentOption = {"День"},
     MultipleOptions = false,
     Callback = function(options)
-        lightingMode = options[1] or "Обычное"
-        applyLighting()
-        notify("Освещение", "Режим: " .. lightingMode)
+        setLightingMode(options and options[1] or "День")
     end
 })
 
 VisualTab:CreateToggle({
     Name = "Отключить тени",
-    CurrentValue = false,
+    CurrentValue = true,
     Callback = function(value)
-        Lighting.GlobalShadows = not value
-        notify("Освещение", value and "Тени отключены" or "Тени включены")
+        shadowsDisabled = value
+        applyLighting()
+        notify("Тени", value and "Отключены" or "Включены")
     end
 })
 
--- =========================================
--- ТЕЛЕПОРТАЦИЯ ПЕРСОНАЖА
--- =========================================
+-- Не запускаем тяжёлый цикл каждый кадр.
+-- Настройки периодически восстанавливаются, если игра их меняет.
+if not lightingWorkerRunning then
+    lightingWorkerRunning = true
+
+    task.spawn(function()
+        while task.wait(0.5) do
+            if not LocalPlayer.Parent then
+                break
+            end
+
+            if lightingMode ~= "Обычное" then
+                pcall(applyLighting)
+            end
+        end
+    end)
+end
+
+applyLighting()
+
+--==================================================
+-- 4. ТЕЛЕПОРТАЦИЯ ПЕРСОНАЖА
+--==================================================
 
 MainTab:CreateButton({
-    Name = "Переместить персонажа к игроку",
+    Name = "Переместиться к выбранному игроку",
     Callback = function()
         local target = getSelectedPlayer()
         if not target then return end
@@ -172,18 +224,18 @@ MainTab:CreateButton({
         local myRoot = getRoot(getCharacter())
 
         if not targetRoot or not myRoot then
-            notify("Ошибка", "Персонаж не загружен")
+            notify("Ошибка", "Персонаж ещё не загружен")
             return
         end
 
         myRoot.CFrame = targetRoot.CFrame * CFrame.new(0, 0, -5)
-        notify("Телепортация", "Запрос выполнен")
+        notify("Телепортация", "Положение персонажа изменено")
     end
 })
 
--- =========================================
--- ПОИСК МАШИНЫ
--- =========================================
+--==================================================
+-- 5. ПОИСК МАШИНЫ
+--==================================================
 
 local function getVehicle()
     local character = getCharacter()
@@ -192,7 +244,9 @@ local function getVehicle()
     local humanoid = character:FindFirstChildOfClass("Humanoid")
     local seat = humanoid and humanoid.SeatPart
 
-    if not seat then return nil end
+    if not seat then
+        return nil
+    end
 
     local current = seat
 
@@ -214,75 +268,184 @@ VehicleTab:CreateButton({
         if vehicle then
             notify("Машина найдена", vehicle:GetFullName())
         else
-            notify("Машина", "Сначала сядь на сиденье")
+            notify("Машина", "Сядь на сиденье своей машины")
         end
     end
 })
 
--- =========================================
--- ПОИСК УЧАСТКА
--- =========================================
+--==================================================
+-- 6. ПОИСК УЧАСТКА
+--==================================================
+
+local plotWords = {
+    "plot", "land", "slot", "claim",
+    "tycoon", "property", "base",
+    "участ", "земля"
+}
+
+local ownerWords = {
+    "owner", "player", "userid",
+    "user_id", "claimedby", "plotowner",
+    "ownername"
+}
+
+local function containsAny(value, words)
+    local text = string.lower(tostring(value or ""))
+
+    for _, word in ipairs(words) do
+        if string.find(text, word, 1, true) then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function matchesPlayer(value, player)
+    if typeof(value) == "Instance" then
+        if value == player then
+            return true
+        end
+
+        if value:IsA("ObjectValue") then
+            value = value.Value
+            if value == player then
+                return true
+            end
+        elseif value:IsA("ValueBase") then
+            value = value.Value
+        else
+            return false
+        end
+    end
+
+    if value == nil then
+        return false
+    end
+
+    local text = string.lower(tostring(value))
+
+    return text == string.lower(player.Name)
+        or text == string.lower(player.DisplayName)
+        or text == tostring(player.UserId)
+end
+
+local function hasOwnerInfo(object, player)
+    for name, value in pairs(object:GetAttributes()) do
+        if containsAny(name, ownerWords)
+            and matchesPlayer(value, player) then
+            return true
+        end
+    end
+
+    for _, item in ipairs(object:GetChildren()) do
+        if item:IsA("ValueBase")
+            and containsAny(item.Name, ownerWords)
+            and matchesPlayer(item, player) then
+            return true
+        end
+
+        for name, value in pairs(item:GetAttributes()) do
+            if containsAny(name, ownerWords)
+                and matchesPlayer(value, player) then
+                return true
+            end
+        end
+    end
+
+    return false
+end
 
 local function findPlayerPlot(player)
     local candidates = {}
+    local ownedObjects = {}
 
+    -- Сканируем один раз, чтобы уменьшить число обходов.
     for _, object in ipairs(workspace:GetDescendants()) do
-        if object:IsA("Model") then
-            local name = string.lower(object.Name)
+        if object:IsA("Model") or object:IsA("Folder") then
+            if hasOwnerInfo(object, player) then
+                table.insert(ownedObjects, object)
+            end
 
-            if name:find("plot", 1, true)
-                or name:find("land", 1, true)
-                or name:find("slot", 1, true)
-                or name:find("участ", 1, true) then
+            if object:IsA("Model")
+                and containsAny(object.Name, plotWords) then
                 table.insert(candidates, object)
             end
         end
     end
 
+    -- Ищем модель участка выше объекта с данными владельца.
+    for _, owned in ipairs(ownedObjects) do
+        local current = owned
+
+        while current and current ~= workspace do
+            if current:IsA("Model")
+                and containsAny(current.Name, plotWords) then
+                print(
+                    "[LT2VM] Участок:",
+                    current:GetFullName(),
+                    "Игрок:",
+                    player.Name
+                )
+                return current
+            end
+
+            current = current.Parent
+        end
+    end
+
+    -- Проверяем кандидатов с подходящим названием.
     for _, model in ipairs(candidates) do
-        for name, value in pairs(model:GetAttributes()) do
-            name = string.lower(name)
-
-            if name:find("owner", 1, true)
-                or name:find("player", 1, true)
-                or name:find("user", 1, true) then
-
-                if value == player.Name
-                    or value == player.DisplayName
-                    or value == tostring(player.UserId)
-                    or value == player.UserId then
-                    return model
-                end
+        for _, descendant in ipairs(model:GetDescendants()) do
+            if hasOwnerInfo(descendant, player) then
+                print("[LT2VM] Участок:", model:GetFullName())
+                return model
             end
         end
+    end
 
-        for _, item in ipairs(model:GetDescendants()) do
-            if item:IsA("StringValue")
-                or item:IsA("IntValue")
-                or item:IsA("NumberValue") then
+    warn(
+        "[LT2VM] Участок не найден:",
+        player.Name,
+        "Моделей-кандидатов:",
+        #candidates,
+        "Объектов владельца:",
+        #ownedObjects
+    )
 
-                local name = string.lower(item.Name)
-
-                if name:find("owner", 1, true)
-                    or name:find("player", 1, true)
-                    or name:find("user", 1, true) then
-
-                    if item.Value == player.Name
-                        or item.Value == player.DisplayName
-                        or tostring(item.Value) == tostring(player.UserId) then
-                        return model
-                    end
-                end
-            end
-        end
+    for i, model in ipairs(candidates) do
+        if i > 15 then break end
+        print("[LT2VM] Кандидат:", model:GetFullName())
     end
 
     return nil
 end
 
--- =========================================
--- ПОДАРКИ И ПЕРЕМЕЩЕНИЕ
--- =========================================
+VehicleTab:CreateButton({
+    Name = "Проверить поиск участков",
+    Callback = function()
+        task.spawn(function()
+            local myPlot = findPlayerPlot(LocalPlayer)
+            local target = getSelectedPlayer()
+
+            if not target then return end
+
+            local targetPlot = findPlayerPlot(target)
+
+            notify(
+                "Диагностика участков",
+                "Мой: " .. (myPlot and "найден" or "не найден")
+                .. " | Игрока: "
+                .. (targetPlot and "найден" or "не найден")
+                .. ". Подробности — в консоли."
+            )
+        end)
+    end
+})
+
+--==================================================
+-- 7. ПОИСК ПОДАРКОВ
+--==================================================
 
 local function isGiftName(name)
     name = string.lower(name)
@@ -292,7 +455,7 @@ local function isGiftName(name)
         or name:find("подар", 1, true) ~= nil
 end
 
-local function getObjectPivot(object)
+local function getPivot(object)
     if object:IsA("Model") then
         return object:GetPivot()
     elseif object:IsA("BasePart") then
@@ -302,7 +465,7 @@ local function getObjectPivot(object)
     return nil
 end
 
-local function setObjectPivot(object, cf)
+local function setPivot(object, cf)
     if object:IsA("Model") then
         object:PivotTo(cf)
     elseif object:IsA("BasePart") then
@@ -311,7 +474,7 @@ local function setObjectPivot(object, cf)
 end
 
 local function collectGifts(vehicle)
-    local oldPivot = vehicle:GetPivot()
+    local vehicleCF = vehicle:GetPivot()
     local boxCF, boxSize = vehicle:GetBoundingBox()
     local gifts = {}
     local seen = {}
@@ -321,7 +484,7 @@ local function collectGifts(vehicle)
             and not object:IsDescendantOf(vehicle)
             and isGiftName(object.Name) then
 
-            local cf = getObjectPivot(object)
+            local cf = getPivot(object)
 
             if cf then
                 local p = boxCF:PointToObjectSpace(cf.Position)
@@ -336,7 +499,8 @@ local function collectGifts(vehicle)
                     local nested = false
 
                     while parent and parent ~= workspace do
-                        if parent:IsA("Model") and isGiftName(parent.Name) then
+                        if parent:IsA("Model")
+                            and isGiftName(parent.Name) then
                             nested = true
                             break
                         end
@@ -348,7 +512,7 @@ local function collectGifts(vehicle)
 
                         table.insert(gifts, {
                             object = object,
-                            relative = oldPivot:ToObjectSpace(cf)
+                            relative = vehicleCF:ToObjectSpace(cf)
                         })
                     end
                 end
@@ -358,6 +522,10 @@ local function collectGifts(vehicle)
 
     return gifts
 end
+
+--==================================================
+-- 8. ПЕРЕНОС МАШИНЫ
+--==================================================
 
 VehicleTab:CreateButton({
     Name = "Перенести машину на участок игрока",
@@ -373,66 +541,76 @@ VehicleTab:CreateButton({
         end
 
         task.spawn(function()
-            local ok, err = pcall(function()
+            local successMove, err = pcall(function()
+                notify("Поиск", "Определяю участки игроков...")
+
                 local myPlot = findPlayerPlot(LocalPlayer)
                 local targetPlot = findPlayerPlot(target)
 
                 if not myPlot then
-                    notify("Ошибка", "Не удалось определить твой участок")
+                    notify(
+                        "Ошибка",
+                        "Твой участок не найден. Нужна диагностика структуры LT2."
+                    )
                     return
                 end
 
                 if not targetPlot then
-                    notify("Ошибка", "Участок выбранного игрока не найден")
+                    notify(
+                        "Ошибка",
+                        "Участок игрока не найден. Проверь консоль."
+                    )
                     return
                 end
 
                 local sourceCF = myPlot:GetPivot()
                 local targetCF = targetPlot:GetPivot()
-                local oldVehicleCF = vehicle:GetPivot()
+                local vehicleCF = vehicle:GetPivot()
 
-                local relativeVehicle =
-                    sourceCF:ToObjectSpace(oldVehicleCF)
+                -- Сохраняем позицию и ориентацию относительно участка.
+                local relativeVehicle = sourceCF:ToObjectSpace(vehicleCF)
+                local destination = targetCF * relativeVehicle
 
                 local gifts = collectGifts(vehicle)
-
-                local destination = targetCF * relativeVehicle
 
                 vehicle:PivotTo(destination)
 
                 for _, gift in ipairs(gifts) do
                     if gift.object and gift.object.Parent then
-                        setObjectPivot(
-                            gift.object,
-                            destination * gift.relative
-                        )
+                        pcall(function()
+                            setPivot(
+                                gift.object,
+                                destination * gift.relative
+                            )
+                        end)
                     end
                 end
 
                 notify(
-                    "Перемещение выполнено",
-                    "Найдено подарков: " .. #gifts
-                    .. ". Проверь результат в игре."
+                    "Запрос выполнен",
+                    "Подарков распознано: " .. #gifts
+                    .. ". Проверь, принял ли сервер перемещение."
                 )
             end)
 
-            if not ok then
-                notify("Ошибка", tostring(err))
+            if not successMove then
+                warn("[LT2VM] Ошибка переноса:", err)
+                notify("Ошибка переноса", tostring(err))
             end
         end)
     end
 })
 
--- =========================================
--- ПОИСК ОБЪЕКТОВ
--- =========================================
+--==================================================
+-- 9. ПОИСК ОБЪЕКТОВ
+--==================================================
 
 VehicleTab:CreateInput({
     Name = "Поиск объекта",
     PlaceholderText = "Tree, Log, Gift...",
     RemoveTextAfterFocusLost = false,
     Callback = function(text)
-        if text == "" then return end
+        if not text or text == "" then return end
 
         local count = 0
         local query = string.lower(text)
@@ -449,13 +627,13 @@ VehicleTab:CreateInput({
             end
         end
 
-        notify("Результаты поиска", "Найдено: " .. count)
+        notify("Поиск", "Найдено совпадений: " .. count)
     end
 })
 
--- =========================================
--- ПОЛЁТ
--- =========================================
+--==================================================
+-- 10. ПОЛЁТ
+--==================================================
 
 local flying = false
 local flySpeed = 180
@@ -493,14 +671,14 @@ local function startFlight()
     local root = getRoot(character)
 
     if not root then
-        notify("Полёт", "Персонаж не найден")
+        notify("Полёт", "Персонаж не загружен")
         return
     end
 
     local humanoid = character:FindFirstChildOfClass("Humanoid")
 
     if humanoid and humanoid.SeatPart then
-        notify("Полёт", "Выйди из машины")
+        notify("Полёт", "Сначала выйди из машины")
         return
     end
 
@@ -527,6 +705,8 @@ local function startFlight()
         end
 
         local camera = workspace.CurrentCamera
+        if not camera then return end
+
         local direction = Vector3.zero
 
         if UserInputService:IsKeyDown(Enum.KeyCode.W) then
@@ -556,7 +736,7 @@ local function startFlight()
         bodyGyro.CFrame = camera.CFrame
     end)
 
-    notify("Полёт", "WASD — движение, Space/Ctrl — высота")
+    notify("Полёт", "WASD — движение, Space — вверх, Ctrl — вниз")
 end
 
 FlightTab:CreateSlider({
@@ -599,14 +779,10 @@ UserInputService.InputBegan:Connect(function(input, processed)
     end
 end)
 
--- =========================================
--- ЗАВЕРШЕНИЕ
--- =========================================
-
 LocalPlayer.CharacterAdded:Connect(function()
     if flying then
         stopFlight(true)
     end
 end)
 
-notify("LT2 Vehicle Mover", "Хаб загружен")
+notify("LT2 Vehicle Mover Ultimate", "Хаб загружен")
