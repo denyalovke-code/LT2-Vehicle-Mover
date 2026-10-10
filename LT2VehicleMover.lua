@@ -1,6 +1,9 @@
 
--- LT2 Vehicle Mover
--- Lumber Tycoon 2 | Rayfield GUI
+--[[
+    LT2 Vehicle Mover
+    Lumber Tycoon 2
+    Единый русскоязычный интерфейс
+]]
 
 local Players = game:GetService("Players")
 local Lighting = game:GetService("Lighting")
@@ -8,14 +11,22 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
 local LocalPlayer = Players.LocalPlayer
-local Rayfield = loadstring(game:HttpGet(
-    "https://sirius.menu/rayfield"
-))()
+
+local success, Rayfield = pcall(function()
+    return loadstring(game:HttpGet(
+        "https://sirius.menu/rayfield"
+    ))()
+end)
+
+if not success or not Rayfield then
+    warn("Не удалось загрузить Rayfield")
+    return
+end
 
 local Window = Rayfield:CreateWindow({
     Name = "LT2 Vehicle Mover",
     LoadingTitle = "LT2 Vehicle Mover",
-    LoadingSubtitle = "Lumber Tycoon 2",
+    LoadingSubtitle = "Lumber Tycoon 2 | Единый хаб",
     ConfigurationSaving = { Enabled = false },
     KeySystem = false
 })
@@ -29,7 +40,7 @@ local function notify(title, message)
     Rayfield:Notify({
         Title = title,
         Content = message,
-        Duration = 4
+        Duration = 5
     })
 end
 
@@ -42,22 +53,22 @@ local function getRoot(character)
 end
 
 -- =========================================
--- PLAYER LIST
+-- ИГРОКИ
 -- =========================================
 
 local selectedPlayerName
 
 local function getPlayerNames()
-    local names = {}
+    local result = {}
 
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
-            table.insert(names, player.Name)
+            table.insert(result, player.Name)
         end
     end
 
-    table.sort(names)
-    return names
+    table.sort(result)
+    return result
 end
 
 local PlayerDropdown = MainTab:CreateDropdown({
@@ -78,17 +89,14 @@ MainTab:CreateButton({
     end
 })
 
-Players.PlayerAdded:Connect(function()
+local function refreshPlayers()
     task.defer(function()
         PlayerDropdown:Refresh(getPlayerNames(), true)
     end)
-end)
+end
 
-Players.PlayerRemoving:Connect(function()
-    task.defer(function()
-        PlayerDropdown:Refresh(getPlayerNames(), true)
-    end)
-end)
+Players.PlayerAdded:Connect(refreshPlayers)
+Players.PlayerRemoving:Connect(refreshPlayers)
 
 local function getSelectedPlayer()
     if not selectedPlayerName then
@@ -96,23 +104,23 @@ local function getSelectedPlayer()
         return nil
     end
 
-    local target = Players:FindFirstChild(selectedPlayerName)
+    local player = Players:FindFirstChild(selectedPlayerName)
 
-    if not target or not target.Character then
+    if not player or not player.Character then
         notify("Ошибка", "Игрок не найден или загружается")
         return nil
     end
 
-    return target
+    return player
 end
 
 -- =========================================
--- VISUALS
+-- ОСВЕЩЕНИЕ
 -- =========================================
 
 local originalClockTime = Lighting.ClockTime
 local originalBrightness = Lighting.Brightness
-local originalGlobalShadows = Lighting.GlobalShadows
+local originalShadows = Lighting.GlobalShadows
 
 local lightingMode = "Обычное"
 
@@ -146,13 +154,12 @@ VisualTab:CreateToggle({
     CurrentValue = false,
     Callback = function(value)
         Lighting.GlobalShadows = not value
-        notify("Освещение", value and
-            "Тени отключены локально" or "Тени включены")
+        notify("Освещение", value and "Тени отключены" or "Тени включены")
     end
 })
 
 -- =========================================
--- CHARACTER TELEPORT
+-- ТЕЛЕПОРТАЦИЯ ПЕРСОНАЖА
 -- =========================================
 
 MainTab:CreateButton({
@@ -170,12 +177,12 @@ MainTab:CreateButton({
         end
 
         myRoot.CFrame = targetRoot.CFrame * CFrame.new(0, 0, -5)
-        notify("Телепорт", "Запрошено локальное перемещение")
+        notify("Телепортация", "Запрос выполнен")
     end
 })
 
 -- =========================================
--- VEHICLE DETECTION
+-- ПОИСК МАШИНЫ
 -- =========================================
 
 local function getVehicle()
@@ -213,14 +220,76 @@ VehicleTab:CreateButton({
 })
 
 -- =========================================
--- VEHICLE + GIFT MOVE ATTEMPT
+-- ПОИСК УЧАСТКА
+-- =========================================
+
+local function findPlayerPlot(player)
+    local candidates = {}
+
+    for _, object in ipairs(workspace:GetDescendants()) do
+        if object:IsA("Model") then
+            local name = string.lower(object.Name)
+
+            if name:find("plot", 1, true)
+                or name:find("land", 1, true)
+                or name:find("slot", 1, true)
+                or name:find("участ", 1, true) then
+                table.insert(candidates, object)
+            end
+        end
+    end
+
+    for _, model in ipairs(candidates) do
+        for name, value in pairs(model:GetAttributes()) do
+            name = string.lower(name)
+
+            if name:find("owner", 1, true)
+                or name:find("player", 1, true)
+                or name:find("user", 1, true) then
+
+                if value == player.Name
+                    or value == player.DisplayName
+                    or value == tostring(player.UserId)
+                    or value == player.UserId then
+                    return model
+                end
+            end
+        end
+
+        for _, item in ipairs(model:GetDescendants()) do
+            if item:IsA("StringValue")
+                or item:IsA("IntValue")
+                or item:IsA("NumberValue") then
+
+                local name = string.lower(item.Name)
+
+                if name:find("owner", 1, true)
+                    or name:find("player", 1, true)
+                    or name:find("user", 1, true) then
+
+                    if item.Value == player.Name
+                        or item.Value == player.DisplayName
+                        or tostring(item.Value) == tostring(player.UserId) then
+                        return model
+                    end
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+-- =========================================
+-- ПОДАРКИ И ПЕРЕМЕЩЕНИЕ
 -- =========================================
 
 local function isGiftName(name)
     name = string.lower(name)
 
-    return string.find(name, "gift", 1, true) ~= nil
-        or string.find(name, "present", 1, true) ~= nil
+    return name:find("gift", 1, true) ~= nil
+        or name:find("present", 1, true) ~= nil
+        or name:find("подар", 1, true) ~= nil
 end
 
 local function getObjectPivot(object)
@@ -233,7 +302,7 @@ local function getObjectPivot(object)
     return nil
 end
 
-local function moveObject(object, cf)
+local function setObjectPivot(object, cf)
     if object:IsA("Model") then
         object:PivotTo(cf)
     elseif object:IsA("BasePart") then
@@ -241,133 +310,151 @@ local function moveObject(object, cf)
     end
 end
 
+local function collectGifts(vehicle)
+    local oldPivot = vehicle:GetPivot()
+    local boxCF, boxSize = vehicle:GetBoundingBox()
+    local gifts = {}
+    local seen = {}
+
+    for _, object in ipairs(workspace:GetDescendants()) do
+        if (object:IsA("Model") or object:IsA("BasePart"))
+            and not object:IsDescendantOf(vehicle)
+            and isGiftName(object.Name) then
+
+            local cf = getObjectPivot(object)
+
+            if cf then
+                local p = boxCF:PointToObjectSpace(cf.Position)
+
+                local inside =
+                    math.abs(p.X) <= boxSize.X / 2 + 2
+                    and math.abs(p.Y) <= boxSize.Y / 2 + 2
+                    and math.abs(p.Z) <= boxSize.Z / 2 + 2
+
+                if inside and not seen[object] then
+                    local parent = object.Parent
+                    local nested = false
+
+                    while parent and parent ~= workspace do
+                        if parent:IsA("Model") and isGiftName(parent.Name) then
+                            nested = true
+                            break
+                        end
+                        parent = parent.Parent
+                    end
+
+                    if not nested then
+                        seen[object] = true
+
+                        table.insert(gifts, {
+                            object = object,
+                            relative = oldPivot:ToObjectSpace(cf)
+                        })
+                    end
+                end
+            end
+        end
+    end
+
+    return gifts
+end
+
 VehicleTab:CreateButton({
-    Name = "Телепортировать машину и подарки",
+    Name = "Перенести машину на участок игрока",
     Callback = function()
         local target = getSelectedPlayer()
         if not target then return end
 
-        local targetRoot = getRoot(target.Character)
         local vehicle = getVehicle()
 
-        if not targetRoot then
-            notify("Ошибка", "Персонаж выбранного игрока не найден")
-            return
-        end
-
         if not vehicle then
-            notify("Ошибка", "Сначала сядь в свою машину")
+            notify("Ошибка", "Сначала сядь в машину")
             return
         end
 
-        local oldPivot = vehicle:GetPivot()
-        local boxCF, boxSize = vehicle:GetBoundingBox()
-        local gifts = {}
-        local seen = {}
+        task.spawn(function()
+            local ok, err = pcall(function()
+                local myPlot = findPlayerPlot(LocalPlayer)
+                local targetPlot = findPlayerPlot(target)
 
-        local function insideVehicle(position)
-            local localPos = boxCF:PointToObjectSpace(position)
+                if not myPlot then
+                    notify("Ошибка", "Не удалось определить твой участок")
+                    return
+                end
 
-            return math.abs(localPos.X) <= boxSize.X / 2 + 3
-                and math.abs(localPos.Y) <= boxSize.Y / 2 + 3
-                and math.abs(localPos.Z) <= boxSize.Z / 2 + 3
-        end
+                if not targetPlot then
+                    notify("Ошибка", "Участок выбранного игрока не найден")
+                    return
+                end
 
-        for _, object in ipairs(workspace:GetDescendants()) do
-            if not object:IsDescendantOf(vehicle)
-                and object ~= vehicle
-                and (object:IsA("Model") or object:IsA("BasePart"))
-                and isGiftName(object.Name)
-                and not seen[object] then
+                local sourceCF = myPlot:GetPivot()
+                local targetCF = targetPlot:GetPivot()
+                local oldVehicleCF = vehicle:GetPivot()
 
-                local skip = false
+                local relativeVehicle =
+                    sourceCF:ToObjectSpace(oldVehicleCF)
 
-                if object:IsA("BasePart") then
-                    local ancestor = object.Parent
+                local gifts = collectGifts(vehicle)
 
-                    while ancestor and ancestor ~= workspace do
-                        if ancestor:IsA("Model")
-                            and isGiftName(ancestor.Name) then
-                            skip = true
-                            break
-                        end
-                        ancestor = ancestor.Parent
+                local destination = targetCF * relativeVehicle
+
+                vehicle:PivotTo(destination)
+
+                for _, gift in ipairs(gifts) do
+                    if gift.object and gift.object.Parent then
+                        setObjectPivot(
+                            gift.object,
+                            destination * gift.relative
+                        )
                     end
                 end
 
-                local cf = getObjectPivot(object)
+                notify(
+                    "Перемещение выполнено",
+                    "Найдено подарков: " .. #gifts
+                    .. ". Проверь результат в игре."
+                )
+            end)
 
-                if not skip and cf and insideVehicle(cf.Position) then
-                    seen[object] = true
-
-                    table.insert(gifts, {
-                        object = object,
-                        relative = oldPivot:ToObjectSpace(cf)
-                    })
-                end
-            end
-        end
-
-        local destination =
-            targetRoot.CFrame * CFrame.new(0, 0, -12)
-
-        local ok, err = pcall(function()
-            vehicle:PivotTo(destination)
-
-            for _, gift in ipairs(gifts) do
-                if gift.object and gift.object.Parent then
-                    moveObject(
-                        gift.object,
-                        destination * gift.relative
-                    )
-                end
+            if not ok then
+                notify("Ошибка", tostring(err))
             end
         end)
-
-        if ok then
-            notify(
-                "Перемещение отправлено",
-                "Обнаружено подарков: " .. #gifts
-                    .. ". Сервер может отменить перемещение."
-            )
-        else
-            notify("Ошибка", tostring(err))
-        end
     end
 })
 
 -- =========================================
--- OBJECT SEARCH
+-- ПОИСК ОБЪЕКТОВ
 -- =========================================
 
 VehicleTab:CreateInput({
-    Name = "Поиск объекта по названию",
-    PlaceholderText = "Например: Tree, Log, Gift",
+    Name = "Поиск объекта",
+    PlaceholderText = "Tree, Log, Gift...",
     RemoveTextAfterFocusLost = false,
     Callback = function(text)
         if text == "" then return end
 
-        local found = 0
-        local search = string.lower(text)
+        local count = 0
+        local query = string.lower(text)
 
         for _, object in ipairs(workspace:GetDescendants()) do
             if (object:IsA("Model") or object:IsA("BasePart"))
                 and string.find(
                     string.lower(object.Name),
-                    search,
+                    query,
                     1,
                     true
                 ) then
-                found += 1
+                count += 1
             end
         end
 
-        notify("Поиск объектов", "Совпадений: " .. found)
+        notify("Результаты поиска", "Найдено: " .. count)
     end
 })
 
 -- =========================================
--- FLIGHT
+-- ПОЛЁТ
 -- =========================================
 
 local flying = false
@@ -375,7 +462,6 @@ local flySpeed = 180
 local flyConnection
 local bodyVelocity
 local bodyGyro
-local flightRoot
 
 local function stopFlight(silent)
     flying = false
@@ -394,8 +480,6 @@ local function stopFlight(silent)
         bodyGyro:Destroy()
         bodyGyro = nil
     end
-
-    flightRoot = nil
 
     if not silent then
         notify("Полёт", "Выключен")
@@ -416,21 +500,20 @@ local function startFlight()
     local humanoid = character:FindFirstChildOfClass("Humanoid")
 
     if humanoid and humanoid.SeatPart then
-        notify("Полёт", "Выйди из машины перед полётом")
+        notify("Полёт", "Выйди из машины")
         return
     end
 
     flying = true
-    flightRoot = root
 
     bodyVelocity = Instance.new("BodyVelocity")
-    bodyVelocity.Name = "LTVM_FlyVelocity"
+    bodyVelocity.Name = "LTVM_Velocity"
     bodyVelocity.MaxForce = Vector3.new(1e9, 1e9, 1e9)
     bodyVelocity.Velocity = Vector3.zero
     bodyVelocity.Parent = root
 
     bodyGyro = Instance.new("BodyGyro")
-    bodyGyro.Name = "LTVM_FlyGyro"
+    bodyGyro.Name = "LTVM_Gyro"
     bodyGyro.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
     bodyGyro.P = 1e5
     bodyGyro.CFrame = workspace.CurrentCamera.CFrame
@@ -473,7 +556,7 @@ local function startFlight()
         bodyGyro.CFrame = camera.CFrame
     end)
 
-    notify("Полёт включён", "WASD — движение; Space/Ctrl — высота")
+    notify("Полёт", "WASD — движение, Space/Ctrl — высота")
 end
 
 FlightTab:CreateSlider({
@@ -501,7 +584,7 @@ FlightTab:CreateToggle({
 
 FlightTab:CreateParagraph({
     Title = "Управление",
-    Content = "W/A/S/D — движение; Space — вверх; Left Ctrl — вниз. Q — переключение полёта."
+    Content = "W/A/S/D — движение; Space — вверх; Left Ctrl — вниз; Q — переключение."
 })
 
 UserInputService.InputBegan:Connect(function(input, processed)
@@ -517,17 +600,7 @@ UserInputService.InputBegan:Connect(function(input, processed)
 end)
 
 -- =========================================
--- LIGHTING KEEP
--- =========================================
-
-RunService.Heartbeat:Connect(function()
-    if lightingMode ~= "Обычное" then
-        applyLighting()
-    end
-end)
-
--- =========================================
--- RESPAWN CLEANUP
+-- ЗАВЕРШЕНИЕ
 -- =========================================
 
 LocalPlayer.CharacterAdded:Connect(function()
@@ -535,9 +608,5 @@ LocalPlayer.CharacterAdded:Connect(function()
         stopFlight(true)
     end
 end)
-
--- =========================================
--- START
--- =========================================
 
 notify("LT2 Vehicle Mover", "Хаб загружен")
